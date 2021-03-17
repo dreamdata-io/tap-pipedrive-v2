@@ -1,4 +1,3 @@
-
 import time
 import requests
 import singer
@@ -25,7 +24,7 @@ def utc_dt_to_since_timestamp(date_utc):
     return date_utc.strftime("%Y-%m-%d %H:%M:%S")
 
 
-class PipedriveClient():
+class PipedriveClient:
 
     client_id: str = None
     client_secret: str = None
@@ -54,7 +53,7 @@ class PipedriveClient():
                 "client_id": self.client_id,
                 "client_secret": self.client_secret,
                 "refresh_token": self.refresh_token,
-            }
+            },
         )
         creds.raise_for_status()
         self._set_creds(creds.json())
@@ -87,14 +86,14 @@ class PipedriveClient():
             self.request_refresh_token()
         else:
             response.raise_for_status()
-            rate_limit_time_remaining = response.headers.get(
-                "X-RateLimit-Remaining")
+            rate_limit_time_remaining = response.headers.get("X-RateLimit-Remaining")
             rate_limit_reset = response.headers.get("X-RateLimit-Reset", 0)
             if rate_limit_time_remaining and rate_limit_reset:
                 if int(rate_limit_time_remaining) < 1:
                     sleep_period_s = int(rate_limit_reset)
                     logger.warning(
-                        f"got rate limited, waiting {sleep_period_s} seconds")
+                        f"got rate limited, waiting {sleep_period_s} seconds"
+                    )
                     time.sleep(sleep_period_s)
 
             return response.json()
@@ -108,20 +107,25 @@ class PipedriveClient():
         while has_more_results:
             try:
                 response_json = self.make_request(
-                    "recents", since_timestamp=since_timestamp_str, start=start, limit=PAGINATION_LIMIT)
+                    "recents",
+                    since_timestamp=since_timestamp_str,
+                    start=start,
+                    limit=PAGINATION_LIMIT,
+                )
                 for record in response_json["data"]:
                     stream_name = record["item"]
                     record = record["data"]
                     if record is None:
                         continue
-                    since_timestamp_str = record['update_time']
+                    since_timestamp_str = record["update_time"]
                     yield since_timestamp_str, stream_name, record
                 metadata = response_json["additional_data"]
 
-                #since_timestamp_str = metadata["since_timestamp"]
-                has_more_results = metadata['pagination']['more_items_in_collection']
-                start = metadata['pagination']['next_start']
+                # since_timestamp_str = metadata["since_timestamp"]
+                has_more_results = metadata["pagination"]["more_items_in_collection"]
+                start = metadata["pagination"]["next_start"]
             except:
                 logger.exception(
-                    f"response_json: {json.dumps(response_json)}, record: {json.dumps(record)}")
+                    f"response_json: {json.dumps(response_json)}, record: {json.dumps(record)}"
+                )
                 raise
