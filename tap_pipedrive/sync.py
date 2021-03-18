@@ -88,11 +88,15 @@ def create_sync_non_paginated_func(stream_name, endpoint):
     return inner_sync_non_paginated_func
 
 
-STREAMS = {
-    "recents": sync_recents,
-    "activity_types": create_sync_non_paginated_func("activity_types", "activityTypes"),
-    "currencies": create_sync_non_paginated_func("currencies", "currencies"),
-}
+STREAMS = [
+    (
+        "activity_types",
+        create_sync_non_paginated_func("activity_types", "activityTypes"),
+    ),
+    ("stage_type", create_sync_non_paginated_func("stage_type", "stages")),
+    ("currencies", create_sync_non_paginated_func("currencies", "currencies")),
+    ("recents", sync_recents),
+]
 
 
 def sync(client, config, state):
@@ -100,9 +104,9 @@ def sync(client, config, state):
     start_date = strptime_to_utc(start_date)
     stream_name = None
     try:
-        for stream_name, sync_func in STREAMS.items():
+        for stream_name, sync_func in STREAMS:
             initial_bookmark_value_dt = get_bookmark(state, "recents", start_date)
             sync_func(client, initial_bookmark_value_dt, state)
     except:
         LOGGER.exception(f"got error during processing of stream: '{stream_name}'")
-        exit(1)
+        raise
