@@ -108,7 +108,7 @@ class PipedriveClient:
                     start=start,
                     limit=PAGINATION_LIMIT,
                 )
-                for record in response_json["data"]:
+                for record in response_json["data"] or []:
                     stream_name = record["item"]
                     record = record["data"]
                     if record is None:
@@ -119,7 +119,7 @@ class PipedriveClient:
 
                 # since_timestamp_str = metadata["since_timestamp"]
                 has_more_results = metadata["pagination"]["more_items_in_collection"]
-                start = metadata["pagination"]["next_start"]
+                start = metadata["pagination"].get("next_start")
             except:
                 logger.exception(
                     f"Got error during recents pagination! response_json: {json.dumps(response_json)}, record: {json.dumps(record)}"

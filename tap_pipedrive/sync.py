@@ -26,11 +26,9 @@ def update_currently_syncing(state, stream_name=None):
 
 def write_record(stream_name, record, time_extracted):
     try:
-        singer.messages.write_record(
-            stream_name, record, time_extracted=time_extracted)
+        singer.messages.write_record(stream_name, record, time_extracted=time_extracted)
     except OSError as err:
-        LOGGER.error(
-            "Stream: {} - OS Error writing record".format(stream_name))
+        LOGGER.error("Stream: {} - OS Error writing record".format(stream_name))
         LOGGER.error("record: {}".format(record))
         raise err
 
@@ -46,8 +44,7 @@ def write_bookmark(state, stream, value):
     if "bookmarks" not in state:
         state["bookmarks"] = {}
     state["bookmarks"][stream] = value
-    LOGGER.info(
-        "Stream: {} - Write state, bookmark value: {}".format(stream, value))
+    LOGGER.info("Stream: {} - Write state, bookmark value: {}".format(stream, value))
     singer.write_state(state)
 
 
@@ -56,15 +53,13 @@ def sync_recents(client, config, state):
 
     initial_bookmark_value = get_bookmark(state, "recents", start_date)
     last_bookmark_value_dt = strptime_to_utc(initial_bookmark_value)
-    since_timestamp_str = utc_dt_to_since_timestamp(
-        last_bookmark_value_dt
-    )
+    since_timestamp_str = utc_dt_to_since_timestamp(last_bookmark_value_dt)
 
     with metrics.record_counter("recents") as counter:
         try:
             # the since_timestamp_str bleeds out of the for loop
-            for since_timestamp_str, stream_name, record in client.paginate_recents(
-                since_timestamp_str
+            for index, (since_timestamp_str, stream_name, record) in enumerate(
+                client.paginate_recents(since_timestamp_str)
             ):
                 write_record(
                     stream_name,
@@ -72,6 +67,13 @@ def sync_recents(client, config, state):
                     time_extracted=utils.now(),
                 )
                 counter.increment()
+                if index % 1000 == 0:
+                    LOGGER.info(
+                        "have written {:10d} results now and reached timestamp {}".format(
+                            index, since_timestamp_str
+                        )
+                    )
+
         finally:
             write_bookmark(state, "recents", since_timestamp_str)
 
@@ -87,6 +89,5 @@ def sync(client, config, state):
         for stream_name, sync_func in STREAMS.items():
             sync_func(client, config, state)
     except:
-        LOGGER.exception(
-            f"got error during processing of stream: '{stream_name}'")
+        LOGGER.exception(f"got error during processing of stream: '{stream_name}'")
         exit(1)
