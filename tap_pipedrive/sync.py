@@ -54,8 +54,8 @@ def sync_recents(client, last_bookmark_value_dt, state):
     with metrics.record_counter("recents") as counter:
         try:
             # the since_timestamp_str bleeds out of the for loop
-            for index, (since_timestamp_str, stream_name, record) in enumerate(
-                client.paginate_recents(since_timestamp_str)
+            for since_timestamp_str, stream_name, record in client.paginate_recents(
+                since_timestamp_str
             ):
                 write_record(
                     stream_name,
@@ -63,12 +63,6 @@ def sync_recents(client, last_bookmark_value_dt, state):
                     time_extracted=utils.now(),
                 )
                 counter.increment()
-                if index % 1000 == 0:
-                    LOGGER.info(
-                        "have written {:10d} results now and reached timestamp {}".format(
-                            index, since_timestamp_str
-                        )
-                    )
         finally:
             write_bookmark(state, "recents", since_timestamp_str)
 
