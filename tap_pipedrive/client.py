@@ -122,6 +122,6 @@ class PipedriveClient:
                 start = metadata["pagination"]["next_start"]
             except:
                 logger.exception(
-                    f"response_json: {json.dumps(response_json)}, record: {json.dumps(record)}"
+                    f"Got error during recents pagination! response_json: {json.dumps(response_json)}, record: {json.dumps(record)}"
                 )
                 raise
