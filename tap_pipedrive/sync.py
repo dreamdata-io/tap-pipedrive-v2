@@ -55,6 +55,7 @@ def sync_recents(client, config, state):
     initial_bookmark_value = get_bookmark(state, "recents", start_date)
     last_bookmark_value_dt = strptime_to_utc(initial_bookmark_value)
     since_timestamp_str = utc_dt_to_since_timestamp(last_bookmark_value_dt)
+
     with metrics.record_counter("recents") as counter:
         for new_since_timestamp_str, stream_name, record in client.paginate_recents(
             since_timestamp_str
