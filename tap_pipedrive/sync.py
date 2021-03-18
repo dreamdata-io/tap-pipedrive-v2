@@ -69,7 +69,6 @@ def sync_recents(client, last_bookmark_value_dt, state):
                             index, since_timestamp_str
                         )
                     )
-
         finally:
             write_bookmark(state, "recents", since_timestamp_str)
 
@@ -77,17 +76,14 @@ def sync_recents(client, last_bookmark_value_dt, state):
 def create_sync_non_paginated_func(stream_name, endpoint):
     def inner_sync_non_paginated_func(client, last_bookmark_value_dt, state):
         with metrics.record_counter(stream_name) as counter:
-            try:
-                response_json = client.make_request(endpoint)
-                for record in response_json.get("data") or []:
-                    write_record(
-                        stream_name,
-                        record,
-                        time_extracted=utils.now(),
-                    )
-                    counter.increment()
-            finally:
-                write_bookmark(state, stream_name, utils.now().isoformat())
+            response_json = client.make_request(endpoint)
+            for record in response_json.get("data") or []:
+                write_record(
+                    stream_name,
+                    record,
+                    time_extracted=utils.now(),
+                )
+                counter.increment()
 
     return inner_sync_non_paginated_func
 
