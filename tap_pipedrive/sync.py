@@ -13,7 +13,7 @@ from singer.utils import strptime_to_utc
 from tap_pipedrive.utils import utc_dt_to_since_timestamp
 
 LOGGER = singer.get_logger()
-DEFAULT_START_DATE = "2010-01-01T00:00:00"
+DEFAULT_START_DATE = (datetime.utcnow() - timedelta(days=365 * 2)).isoformat()
 
 
 def update_currently_syncing(state, stream_name=None):
