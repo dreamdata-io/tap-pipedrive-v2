@@ -96,32 +96,75 @@ class PipedriveClient:
 
         raise WaitAndRetry()
 
-    def paginate_recents(self, since_timestamp_str):
-        has_more_results = True
-        start = 0
-        response_json = record = None
-        while has_more_results:
-            try:
-                response_json = self.make_request(
-                    "recents",
-                    since_timestamp=since_timestamp_str,
-                    start=start,
-                    limit=PAGINATION_LIMIT,
-                )
-                for record in response_json["data"] or []:
-                    stream_name = record["item"]
-                    record = record["data"]
-                    if record is None:
-                        continue
-                    since_timestamp_str = record["update_time"]
-                    yield since_timestamp_str, stream_name, record
+    def paginate_request(self, endpoint, **params):
+        try:
+            has_more_results = True
+            start = 0
+            response_json = None
+            params["limit"] = PAGINATION_LIMIT
+            while has_more_results:
+                params["start"] = start
+                response_json = self.make_request(endpoint, **params)
+
+                for obj in response_json["data"] or []:
+                    yield obj
+
                 metadata = response_json["additional_data"]
 
                 # since_timestamp_str = metadata["since_timestamp"]
                 has_more_results = metadata["pagination"]["more_items_in_collection"]
                 start = metadata["pagination"].get("next_start")
-            except:
-                logger.exception(
-                    f"Got error during recents pagination! response_json: {json.dumps(response_json)}, record: {json.dumps(record)}"
+        except:
+            logger.exception(
+                f"Got error during recents pagination! response_json: {json.dumps(response_json)}"
+            )
+            raise
+
+    def paginate_recents(self, since_timestamp_str):
+        record = None
+        ITEMS_PARAM = ",".join(
+            [
+                "activity",
+                "deal",
+                "note",
+                "person",
+                "organization",
+                "pipeline",
+                "product",
+                "stage",
+                "user",
+            ]
+        )
+        SUBQUERIES = {
+            "deal": [
+                {
+                    "stream_name": "deal_flow",
+                    "endpoint_template": "deals/{}/flow",
+                    "params": {"all_changes": 1},
+                }
+            ]
+        }
+        for obj in self.paginate_request(
+            "recents", since_timestamp=since_timestamp_str, items=ITEMS_PARAM
+        ):
+            stream_name = obj["item"]
+            data = obj["data"]
+
+            if data is None:
+                continue
+            if not isinstance(data, list):
+                data = [data]
+            for record in data:
+                since_timestamp_str = (
+                    record.get("update_time")
+                    or record.get("modified")
+                    or record["created"]
                 )
-                raise
+                yield since_timestamp_str, stream_name, record
+                for subquery in SUBQUERIES.get(stream_name, []):
+                    for sub_obj in self.paginate_request(
+                        subquery["endpoint_template"].format(record["id"])
+                    ):
+                        yield since_timestamp_str, subquery["stream_name"], sub_obj[
+                            "data"
+                        ]

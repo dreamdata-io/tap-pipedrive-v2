@@ -48,11 +48,7 @@ def write_bookmark(state, stream, value):
     singer.write_state(state)
 
 
-def sync_recents(client, config, state):
-    start_date = config.get("start_date") or DEFAULT_START_DATE
-
-    initial_bookmark_value = get_bookmark(state, "recents", start_date)
-    last_bookmark_value_dt = strptime_to_utc(initial_bookmark_value)
+def sync_recents(client, last_bookmark_value_dt, state):
     since_timestamp_str = utc_dt_to_since_timestamp(last_bookmark_value_dt)
 
     with metrics.record_counter("recents") as counter:
@@ -78,7 +74,29 @@ def sync_recents(client, config, state):
             write_bookmark(state, "recents", since_timestamp_str)
 
 
-STREAMS = {"recents": sync_recents}
+def create_sync_non_paginated_func(stream_name, endpoint):
+    def inner_sync_non_paginated_func(client, last_bookmark_value_dt, state):
+        with metrics.record_counter(stream_name) as counter:
+            try:
+                response_json = client.make_request(endpoint)
+                for record in response_json.get("data") or []:
+                    write_record(
+                        stream_name,
+                        record,
+                        time_extracted=utils.now(),
+                    )
+                    counter.increment()
+            finally:
+                write_bookmark(state, stream_name, utils.now().isoformat())
+
+    return inner_sync_non_paginated_func
+
+
+STREAMS = {
+    "recents": sync_recents,
+    "activity_types": create_sync_non_paginated_func("activity_types", "activityTypes"),
+    "currencies": create_sync_non_paginated_func("currencies", "currencies"),
+}
 
 
 def sync(client, config, state):
@@ -87,7 +105,8 @@ def sync(client, config, state):
     stream_name = None
     try:
         for stream_name, sync_func in STREAMS.items():
-            sync_func(client, config, state)
+            initial_bookmark_value_dt = get_bookmark(state, "recents", start_date)
+            sync_func(client, initial_bookmark_value_dt, state)
     except:
         LOGGER.exception(f"got error during processing of stream: '{stream_name}'")
         exit(1)
