@@ -1,5 +1,6 @@
 # pylint: disable=too-many-lines
 from datetime import datetime, timedelta
+from typing import final
 from urllib.parse import urlparse
 from dateutil.parser import parse
 import json
@@ -13,6 +14,12 @@ from tap_pipedrive.utils import utc_dt_to_since_timestamp
 LOGGER = singer.get_logger()
 DEFAULT_START_DATE = (datetime.utcnow() - timedelta(days=365 * 2)).isoformat()
 BUFFER_SIZE = 100
+
+
+def update_bookmark_without_write(state, stream, value):
+    if "bookmarks" not in state:
+        state["bookmarks"] = {}
+    state["bookmarks"][stream] = value
 
 
 def update_currently_syncing(state, stream_name=None):
@@ -40,11 +47,16 @@ def get_bookmark(state, stream, default):
     return state.get("bookmarks", {}).get(stream, default)
 
 
-def write_bookmark(state, stream, value):
-    if "bookmarks" not in state:
-        state["bookmarks"] = {}
-    state["bookmarks"][stream] = value
-    LOGGER.info("Stream: {} - Write state, bookmark value: {}".format(stream, value))
+def write_bookmark(state, stream=None, value=None):
+    if stream is not None and value is not None:
+        if "bookmarks" not in state:
+            state["bookmarks"] = {}
+        state["bookmarks"][stream] = value
+        LOGGER.info(
+            "Stream: {} - Write state, bookmark value: {}".format(stream, value)
+        )
+    else:
+        LOGGER.info("Stream: {} - Write state")
     singer.write_state(state)
 
 
@@ -62,6 +74,7 @@ def sync_recents(client, last_bookmark_value_dt, state):
                     record,
                     time_extracted=utils.now(),
                 )
+                update_bookmark_without_write(state, stream_name, since_timestamp_str)
                 counter.increment()
         finally:
             write_bookmark(state, "recents", since_timestamp_str)
@@ -95,12 +108,15 @@ STREAMS = [
 
 def sync(client, config, state):
     start_date = config.get("start_date") or DEFAULT_START_DATE
-    start_date = strptime_to_utc(start_date)
     stream_name = None
     try:
         for stream_name, sync_func in STREAMS:
-            initial_bookmark_value_dt = get_bookmark(state, "recents", start_date)
+            update_currently_syncing(state, stream_name)
+            initial_bookmark_value = get_bookmark(state, "recents", start_date)
+            initial_bookmark_value_dt = strptime_to_utc(initial_bookmark_value)
             sync_func(client, initial_bookmark_value_dt, state)
     except:
         LOGGER.exception(f"got error during processing of stream: '{stream_name}'")
         raise
+    finally:
+        update_currently_syncing(state)
