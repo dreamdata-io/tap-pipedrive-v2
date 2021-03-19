@@ -69,16 +69,19 @@ class PipedriveClient:
         }
         response = self._session.get(url, params=params, headers=headers)
 
+        error_message = "error"
+
         if response.status_code == 429:
-            logger.warning("got rate limited, waiting a bit")
+            error_message = "got rate limited, waiting a bit"
+            logger.warning(error_message)
         elif response.status_code == 500:
-            logger.warning(
-                f"got internal server error from pipedrive, waiting a bit  url: {url} response: {response.text}"
-            )
+            error_message = f"got internal server error from pipedrive, waiting a bit  url: {url} response: {response.text}"
+
+            logger.warning(error_message)
         elif response.status_code in [400, 401, 403]:
-            logger.warning(
-                f"got possible bad auth, refreshing tokens and trying again url: {url} response: {response.text}"
-            )
+            error_message = f"got possible bad auth, refreshing tokens and trying again url: {url} response: {response.text}"
+
+            logger.warning(error_message)
             self.request_refresh_token()
         else:
             response.raise_for_status()
@@ -87,14 +90,20 @@ class PipedriveClient:
             if rate_limit_time_remaining and rate_limit_reset:
                 if int(rate_limit_time_remaining) < 1:
                     sleep_period_s = int(rate_limit_reset)
-                    logger.warning(
+                    error_message = (
                         f"got rate limited, waiting {sleep_period_s} seconds"
                     )
+
+                    logger.warning(error_message)
                     time.sleep(sleep_period_s)
+            try:
+                return response.json()
+            except JSONDecodeError:
+                error_message = f"got bad json, trying again (status: {response.status_code}, response_text: {response.text}"
 
-            return response.json()
+                logger.error(error_message)
 
-        raise WaitAndRetry()
+        raise WaitAndRetry(error_message)
 
     def paginate_request(self, endpoint, **params):
         try:

@@ -1,9 +1,5 @@
 # pylint: disable=too-many-lines
 from datetime import datetime, timedelta
-from typing import final
-from urllib.parse import urlparse
-from dateutil.parser import parse
-import json
 
 import singer
 from singer import metrics, utils
