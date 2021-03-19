@@ -1,15 +1,19 @@
 # pylint: disable=too-many-lines
 from datetime import datetime, timedelta
-
+import json
 import singer
 from singer import metrics, utils
 from singer.utils import strptime_to_utc
-
+from collections import Counter
 from tap_pipedrive.utils import utc_dt_to_since_timestamp
 
 LOGGER = singer.get_logger()
 DEFAULT_START_DATE = (datetime.utcnow() - timedelta(days=365 * 2)).isoformat()
 BUFFER_SIZE = 100
+
+STREAM_NAME_RECORD_COUNTER = Counter()
+STREAM_NAME_RECORD_SINCE_TIMESTAMP = {}
+PROGRESS_LOG_FREQUENCY = 2000
 
 
 def update_bookmark_without_write(state, stream, value):
@@ -19,19 +23,37 @@ def update_bookmark_without_write(state, stream, value):
 
 
 def update_currently_syncing(state, stream_name=None):
-
     if (stream_name is None) and ("currently_syncing" in state):
         del state["currently_syncing"]
     else:
+        previous_stream_name = state.get("currently_syncing", None)
+        if previous_stream_name is not None:
+            time_reached = STREAM_NAME_RECORD_SINCE_TIMESTAMP.get(
+                previous_stream_name, None)
+            if time_reached:
+                record_count = STREAM_NAME_RECORD_COUNTER.get(
+                    previous_stream_name, "not found")
+                LOGGER.info(
+                    f"PROGRESS: stream_name: '{stream_name}' total records produced: {record_count}, time_reached: '{time_reached}'")
         singer.set_currently_syncing(state, stream_name)
     singer.write_state(state)
 
 
-def write_record(stream_name, record, time_extracted):
+def write_record(stream_name, record, time_extracted, time_reached=None):
     try:
-        singer.messages.write_record(stream_name, record, time_extracted=time_extracted)
+        singer.messages.write_record(
+            stream_name, record, time_extracted=time_extracted)
+        STREAM_NAME_RECORD_SINCE_TIMESTAMP[stream_name] = time_reached
+        STREAM_NAME_RECORD_COUNTER.update([stream_name])
+        record_count = STREAM_NAME_RECORD_COUNTER.get(stream_name)
+        time_reached = f", time_reached: '{time_reached}'" if time_reached else ""
+
+        if record_count % PROGRESS_LOG_FREQUENCY == 0:
+            LOGGER.info(
+                f"PROGRESS: stream_name: '{stream_name}' records produced yet: {record_count}{time_reached}")
     except OSError as err:
-        LOGGER.error("Stream: {} - OS Error writing record".format(stream_name))
+        LOGGER.error(
+            "Stream: {} - OS Error writing record".format(stream_name))
         LOGGER.error("record: {}".format(record))
         raise err
 
@@ -49,7 +71,8 @@ def write_bookmark(state, stream=None, value=None):
             state["bookmarks"] = {}
         state["bookmarks"][stream] = value
         LOGGER.info(
-            "Stream: {} - Write state, bookmark value: {}".format(stream, value)
+            "Stream: {} - Write state, bookmark value: {}".format(
+                stream, value)
         )
     else:
         LOGGER.info("Stream: {} - Write state")
@@ -69,8 +92,10 @@ def sync_recents(client, last_bookmark_value_dt, state):
                     stream_name,
                     record,
                     time_extracted=utils.now(),
+                    time_reached=since_timestamp_str
                 )
-                update_bookmark_without_write(state, stream_name, since_timestamp_str)
+                update_bookmark_without_write(
+                    state, stream_name, since_timestamp_str)
                 counter.increment()
         finally:
             write_bookmark(state, "recents", since_timestamp_str)
@@ -112,7 +137,11 @@ def sync(client, config, state):
             initial_bookmark_value_dt = strptime_to_utc(initial_bookmark_value)
             sync_func(client, initial_bookmark_value_dt, state)
     except:
-        LOGGER.exception(f"got error during processing of stream: '{stream_name}'")
+        LOGGER.exception(
+            f"got error during processing of stream: '{stream_name}'")
         raise
     finally:
+
+        LOGGER.info(
+            f"COMPLETE STATS: stream_name_time_reached: {json.dumps(STREAM_NAME_RECORD_SINCE_TIMESTAMP)} stream_name_records_produced: {STREAM_NAME_RECORD_COUNTER.most_common()}")
         update_currently_syncing(state)
