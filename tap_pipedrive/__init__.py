@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
-
-import sys
-import json
-import argparse
-import singer
-from singer import metadata, utils
-from tap_pipedrive.client import PipedriveClient
 from tap_pipedrive.sync import sync
+from tap_pipedrive.client import PipedriveClient
 
-
-LOGGER = singer.get_logger()
 
 REQUIRED_CONFIG_KEYS = [
     "start_date",
@@ -20,18 +12,11 @@ REQUIRED_CONFIG_KEYS = [
 ]
 
 
-@singer.utils.handle_top_exception(LOGGER)
-def main():
-
-    parsed_args = singer.utils.parse_args(REQUIRED_CONFIG_KEYS)
-
-    config = parsed_args.config
+def main(config, state=None):
 
     client = PipedriveClient(**config)
 
-    state = {}
-    if parsed_args.state:
-        state = parsed_args.state
+    state = state or {}
 
     sync(client=client, config=config, state=state)
 
