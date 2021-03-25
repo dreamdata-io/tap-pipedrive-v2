@@ -4,11 +4,9 @@ import singer
 from requests.exceptions import ConnectionError, RequestException, HTTPError, Timeout
 from json import JSONDecodeError
 import json
-import datetime
+from streamlib import logger, exceptions
 
 import backoff
-
-logger = singer.get_logger()
 
 
 BASE_API_URL = "https://api.pipedrive.com/v1"
@@ -56,7 +54,8 @@ class PipedriveClient:
 
     @backoff.on_exception(
         backoff.expo,
-        (Timeout, ConnectionError, RequestException, WaitAndRetry, HTTPError),
+        (Timeout, ConnectionError, RequestException,
+         WaitAndRetry, HTTPError, exceptions.Error),
         max_tries=4,
         factor=2,
     )
@@ -69,23 +68,20 @@ class PipedriveClient:
         }
         response = self._session.get(url, params=params, headers=headers)
 
-        error_message = "error"
-
         if response.status_code == 429:
-            error_message = "got rate limited, waiting a bit"
-            logger.warning(error_message)
+            raise exceptions.APIThrottleError(
+                "got rate limited, waiting a bit")
         elif response.status_code == 500:
-            error_message = f"got internal server error from pipedrive, waiting a bit  url: {url} response: {response.text}"
-
-            logger.warning(error_message)
+            raise exceptions.APIError(
+                f"got internal server error from pipedrive, waiting a bit  url: {url} response: {response.text}")
         elif response.status_code in [400, 401, 403]:
-            error_message = f"got possible bad auth, refreshing tokens and trying again url: {url} response: {response.text}"
-
-            logger.warning(error_message)
             self.request_refresh_token()
+            raise exceptions.APITransientAuth(
+                f"got possible bad auth, refreshing tokens and trying again url: {url} response: {response.text}")
         else:
             response.raise_for_status()
-            rate_limit_time_remaining = response.headers.get("X-RateLimit-Remaining")
+            rate_limit_time_remaining = response.headers.get(
+                "X-RateLimit-Remaining")
             rate_limit_reset = response.headers.get("X-RateLimit-Reset", 0)
             if rate_limit_time_remaining and rate_limit_reset:
                 if int(rate_limit_time_remaining) < 1:
@@ -99,11 +95,8 @@ class PipedriveClient:
             try:
                 return response.json()
             except JSONDecodeError:
-                error_message = f"got bad json, trying again (status: {response.status_code}, response_text: {response.text}"
-
-                logger.error(error_message)
-
-        raise WaitAndRetry(error_message)
+                raise exceptions.APIBadResponse(
+                    f"got bad json, trying again (status: {response.status_code}, response_text: {response.text}")
 
     def paginate_request(self, endpoint, **params):
         try:
